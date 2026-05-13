@@ -32,9 +32,15 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq build-essential cmake libusb-1.0-0-dev
 
+      - name: Prepare libudev-zero
+        run: |
+          git clone --depth 1 --branch 1.0.3 \
+            https://github.com/illiliti/libudev-zero.git /tmp/libudev-zero
+
       - name: Build
         run: |
-          cmake -B build -DCMAKE_BUILD_TYPE=Release
+          cmake -B build -DCMAKE_BUILD_TYPE=Release \
+            -DFETCHCONTENT_SOURCE_DIR_LIBUDEV_ZERO_SOURCE=/tmp/libudev-zero
           cmake --build build -- -j$(nproc)
 
       - name: Set version
