@@ -77,10 +77,11 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - name: Create Release
+      - name: Create Release via API
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "${{ github.ref_name }}" \
-            --title "upgrade_tool ${{ github.ref_name }}" \
-            --notes "Pre-built statically-linked binaries. Assets coming soon."
+          gh api "repos/${{ github.repository }}/releases" \
+            -f tag_name="${{ github.ref_name }}" \
+            -f name="upgrade_tool ${{ github.ref_name }}" \
+            -f body="Pre-built statically-linked binaries."
