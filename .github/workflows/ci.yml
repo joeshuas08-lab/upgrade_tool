@@ -28,6 +28,11 @@ jobs:
       - name: Install dependencies
         run: |
           sudo dpkg --add-architecture arm64
+          # security.ubuntu.com doesn't serve arm64 — pin those repos to amd64 only
+          for f in /etc/apt/sources.list.d/*.sources; do
+            grep -q 'security.ubuntu.com' "$f" 2>/dev/null \
+              && sudo sed -i '/^URIs:.*security\.ubuntu\.com/i\Architectures: amd64' "$f"
+          done
           sudo apt-get update -qq
           sudo apt-get install -y -qq \
             build-essential cmake \
