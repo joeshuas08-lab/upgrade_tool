@@ -32,22 +32,28 @@ jobs:
             build-essential cmake libusb-1.0-0-dev \
             gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
 
+      - name: Prepare libudev-zero (clone to skip FetchContent download)
+        run: |
+          git clone --depth 1 --branch 1.0.3 \
+            https://github.com/illiliti/libudev-zero.git /tmp/libudev-zero
+
       - name: Fetch arm64 libusb static library
         run: |
           set -euo pipefail
-          # Get the amd64 libusb version (same version exists for arm64)
           PKG_VER=$(apt-cache show libusb-1.0-0-dev | awk '/^Version:/ {print $2; exit}')
           echo "libusb version: ${PKG_VER}"
           mkdir -p /tmp/arm64-root
-          curl -sL "http://archive.ubuntu.com/ubuntu/pool/main/libu/libusb-1.0/libusb-1.0-0-dev_${PKG_VER}_arm64.deb" \
+          curl -sL --retry 3 --max-time 60 \
+            "http://archive.ubuntu.com/ubuntu/pool/main/libu/libusb-1.0/libusb-1.0-0-dev_${PKG_VER}_arm64.deb" \
             -o /tmp/libusb-arm64.deb
           dpkg-deb -x /tmp/libusb-arm64.deb /tmp/arm64-root
           find /tmp/arm64-root -name '*.a' -exec ls -lh {} \;
 
       - name: Build amd64 static
         run: |
-          cmake -B build/amd64 -DCMAKE_BUILD_TYPE=Release
-          cmake --build build/amd64
+          cmake -B build/amd64 -DCMAKE_BUILD_TYPE=Release \
+            -DFETCHCONTENT_SOURCE_DIR_LIBUDEV_ZERO_SOURCE=/tmp/libudev-zero
+          cmake --build build/amd64 -- -j$(nproc)
 
       - name: Build arm64 static (cross-compile)
         env:
@@ -57,8 +63,9 @@ jobs:
           cmake -B build/arm64 \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_TOOLCHAIN_FILE="${{ github.workspace }}/cmake/toolchain-aarch64.cmake" \
-            -DCMAKE_LIBRARY_PATH=/tmp/arm64-root/usr/lib/aarch64-linux-gnu
-          cmake --build build/arm64
+            -DCMAKE_LIBRARY_PATH=/tmp/arm64-root/usr/lib/aarch64-linux-gnu \
+            -DFETCHCONTENT_SOURCE_DIR_LIBUDEV_ZERO_SOURCE=/tmp/libudev-zero
+          cmake --build build/arm64 -- -j$(nproc)
 
       - name: Package
         run: |
