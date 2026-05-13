@@ -75,38 +75,10 @@ jobs:
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
     steps:
-      - uses: actions/download-artifact@v4
-        with:
-          pattern: upgrade_tool-*
-          merge-multiple: true
-
-      - name: Show downloaded files
-        run: find . -type f -not -path './.git/*' | sort
-
-      - name: Create Release
+      - name: Create Release (no assets first)
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          cat > /tmp/notes.md <<'NOTES'
-          Pre-built statically-linked binaries for Debian 11+.
-
-          *Assets:*
-          - .deb packages for amd64 and arm64
-          - Raw static binaries for amd64 and arm64
-          NOTES
-
-          ASSETS=$(find dist -type f \( -name '*.deb' -o -name 'upgrade_tool-*' \) 2>/dev/null)
-          echo "Assets: $ASSETS"
-
-          if [ -z "$ASSETS" ]; then
-            echo "No assets found, creating release without files"
-            gh release create "${{ github.ref_name }}" \
-              --title "upgrade_tool ${{ github.ref_name }}" \
-              --notes-file /tmp/notes.md \
-              --draft
-          else
-            gh release create "${{ github.ref_name }}" \
-              --title "upgrade_tool ${{ github.ref_name }}" \
-              --notes-file /tmp/notes.md \
-              $ASSETS
-          fi
+          gh release create "${{ github.ref_name }}" \
+            --title "upgrade_tool ${{ github.ref_name }}" \
+            --notes "Pre-built statically-linked binaries. Assets coming soon."
