@@ -75,25 +75,27 @@ jobs:
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
     steps:
-      - uses: actions/checkout@v5
-
-      - name: Download artifacts via gh
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh run download ${{ github.run_id }} \
-            --pattern 'upgrade_tool-*' \
-            --dir dist/
-
-      - name: Debug layout
-        run: |
-          find dist -type f -exec ls -lh {} \;
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: upgrade_tool-*
+          merge-multiple: true
 
       - name: Create Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          echo "=== Working directory ==="
+          pwd
+          echo "=== File tree ==="
+          find . -type f -not -path './.git/*' | sort
+          echo "=== dist/ ==="
+          ls -laR dist/ 2>/dev/null || echo "no dist/ dir"
+
+          # Collect asset files
+          ASSETS=$(find . -type f \( -name '*.deb' -o -name 'upgrade_tool-*' \) -print)
+          echo "=== Assets found ==="
+          echo "$ASSETS"
 
           cat > /tmp/release-notes.md <<'NOTES'
           Pre-built statically-linked binaries for Debian 11 (Bullseye) and later.
@@ -105,7 +107,8 @@ jobs:
           All binaries are statically linked — zero runtime dependencies.
           NOTES
 
+          # shellcheck disable=SC2086
           gh release create "${{ github.ref_name }}" \
             --title "upgrade_tool ${{ github.ref_name }}" \
             --notes-file /tmp/release-notes.md \
-            dist/*.deb dist/upgrade_tool-*
+            $ASSETS
