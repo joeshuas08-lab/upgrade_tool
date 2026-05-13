@@ -1,0 +1,119 @@
+# GitHub Actions — upgrade_tool
+# Build Debian-compatible static binaries on push.
+# On tag push: create a GitHub Release with binaries + .deb packages.
+#
+# Strategy:
+#   - Static linking (libusb-1.0 + libudev-zero built from source)
+#   - amd64 native build + arm64 cross-compile via aarch64-linux-gnu
+#   - .deb packaging via scripts/package-deb.sh (ar + tar, no dpkg-deb needed)
+
+name: build-and-release
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install dependencies
+        run: |
+          sudo dpkg --add-architecture arm64
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq \
+            build-essential cmake \
+            libusb-1.0-0-dev \
+            gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
+            libusb-1.0-0-dev:arm64
+
+      - name: Build amd64 static
+        run: |
+          cmake -B build/amd64 -DCMAKE_BUILD_TYPE=Release
+          cmake --build build/amd64
+
+      - name: Build arm64 static (cross-compile)
+        env:
+          CC: aarch64-linux-gnu-gcc
+          CXX: aarch64-linux-gnu-g++
+        run: |
+          cmake -B build/arm64 \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_TOOLCHAIN_FILE="${{ github.workspace }}/cmake/toolchain-aarch64.cmake"
+          cmake --build build/arm64
+
+      - name: Package
+        run: |
+          set -euo pipefail
+          # Derive version: tag name without 'v' prefix, or 0.0.0+<short-sha>
+          if [[ "${{ github.ref_type }}" == "tag" ]]; then
+            VER="${{ github.ref_name }}"
+            VER="${VER#v}"
+          else
+            VER="0.0.0+${{ github.sha }}"
+            VER="${VER::16}"
+          fi
+          export VER
+          mkdir -p dist
+          echo "${VER}" > dist/.version
+
+          # amd64
+          cp build/amd64/upgrade_tool dist/upgrade_tool-${VER}-amd64-static
+          ./scripts/package-deb.sh build/amd64/upgrade_tool amd64 dist/
+
+          # arm64
+          cp build/arm64/upgrade_tool dist/upgrade_tool-${VER}-arm64-static
+          ./scripts/package-deb.sh build/arm64/upgrade_tool arm64 dist/
+
+          echo "=== Build artifacts ==="
+          find dist/ -type f -not -name '.version' -exec ls -lh {} \;
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v6
+        with:
+          name: upgrade_tool-${{ github.sha }}
+          path: |
+            dist/*.deb
+            dist/upgrade_tool-*
+
+      - name: Create Release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          echo "=== Files to upload ==="
+          ls -lh dist/*.deb dist/upgrade_tool-*
+
+          if gh release view "${{ github.ref_name }}" &>/dev/null; then
+            echo "Release exists, reusing..."
+          else
+            cat > /tmp/release-notes.md <<'NOTES'
+          Pre-built fully-static binaries for Debian 11 (Bullseye) and later.
+
+          **Assets:**
+          - .deb packages for amd64 and arm64
+          - Raw static binaries for amd64 and arm64
+
+          All binaries are statically linked — zero runtime dependencies.
+          Built from commit ${{ github.sha }}.
+          NOTES
+            gh release create "${{ github.ref_name }}" \
+              --title "upgrade_tool ${{ github.ref_name }}" \
+              --notes-file /tmp/release-notes.md \
+              --draft
+          fi
+
+          gh release upload "${{ github.ref_name }}" \
+            dist/*.deb dist/upgrade_tool-* --clobber
+
+          gh release edit "${{ github.ref_name }}" --draft=false
